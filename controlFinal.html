@@ -1,0 +1,355 @@
+<html><head><base href="." /><title>Examen de Programación Web</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+  }
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+  }
+
+  h1 {
+    color: #2c3e50;
+    text-align: center;
+    margin-bottom: 2rem;
+    font-size: 2.5rem;
+  }
+
+  .welcome-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-weight: bold;
+    color: #34495e;
+  }
+
+  input {
+    padding: 0.8rem;
+    border: 2px solid #ddd;
+    border-radius: 5px;
+    font-size: 1rem;
+    transition: border-color 0.3s;
+  }
+
+  input:focus {
+    border-color: #3498db;
+    outline: none;
+  }
+
+  button {
+    background: #3498db;
+    color: white;
+    padding: 1rem 2rem;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+
+  button:hover {
+    background: #2980b9;
+  }
+
+  .timer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    background: #e74c3c;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-weight: bold;
+    display: none;
+  }
+
+  .quiz-container {
+    display: none;
+  }
+
+  .question {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 5px;
+  }
+
+  .finish-screen {
+    display: none;
+    text-align: center;
+    padding: 2rem;
+  }
+
+  .finish-screen h2 {
+    color: #2c3e50;
+    margin-bottom: 1.5rem;
+  }
+
+  .finish-screen p {
+    margin-bottom: 2rem;
+    color: #34495e;
+    font-size: 1.1rem;
+  }
+
+  .finish-button {
+    background: #27ae60;
+    color: white;
+    padding: 1rem 2rem;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.3s;
+    margin: 1rem;
+  }
+
+  .finish-button:hover {
+    background: #219a52;
+  }
+
+  .instructions {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 5px;
+    margin-top: 2rem;
+    text-align: left;
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/downloadjs@1.4.7/download.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+  <h1>📚 Examen de Programación Web</h1>
+  
+  <div id="welcome-screen">
+    <form class="welcome-form" id="studentForm">
+      <div class="form-group">
+        <label for="fullName">Nombre Completo:</label>
+        <input type="text" id="fullName" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="course">Curso:</label>
+        <input type="text" id="course" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="email">Correo Electrónico:</label>
+        <input type="email" id="email" required>
+      </div>
+      
+      <button type="submit">Comenzar Examen</button>
+    </form>
+  </div>
+
+  <div id="quiz-container" class="quiz-container">
+    <div id="questions"></div>
+    <button id="submitQuiz">Entregar Examen</button>
+  </div>
+
+  <div id="finish-screen" class="finish-screen">
+    <h2>¡Examen Finalizado!</h2>
+    <p>Has completado el examen de Programación Web.</p>
+    <button class="finish-button" id="downloadPDF">Descargar PDF de Respuestas</button>
+    <div class="instructions">
+      <h3>Próximos pasos:</h3>
+      <ol>
+        <li>Descarga el archivo PDF con tus respuestas</li>
+        <li>Sube el archivo PDF a tu Classroom en la tarea correspondiente</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="timer" id="timer"></div>
+
+<script>
+// Preguntas del examen
+const questions = {
+  html: [
+    { q: "¿Qué significa HTML?", a: "HyperText Markup Language" },
+    { q: "¿Qué etiqueta se usa para crear un párrafo?", a: "<p>" },
+    { q: "¿Qué etiqueta se usa para crear un enlace?", a: "<a>" },
+    { q: "¿Qué etiqueta se usa para crear una lista desordenada?", a: "<ul>" },
+    { q: "¿Cómo se crea un encabezado de nivel 1?", a: "<h1>" },
+    { q: "¿Qué etiqueta se usa para insertar una imagen?", a: "<img>" },
+    { q: "¿Qué atributo se usa para especificar el URL en un enlace?", a: "href" }
+  ],
+  css: [
+    { q: "¿Qué significa CSS?", a: "Cascading Style Sheets" },
+    { q: "¿Qué propiedad CSS se usa para cambiar el color del texto?", a: "color" },
+    { q: "¿Qué propiedad CSS se usa para cambiar el tamaño de la fuente?", a: "font-size" },
+    { q: "¿Qué valor de display hace que un elemento sea invisible?", a: "none" },
+    { q: "¿Qué propiedad CSS se usa para agregar espacio alrededor del contenido?", a: "padding" },
+    { q: "¿Qué selector CSS se usa para seleccionar elementos por su clase?", a: "." },
+    { q: "¿Qué propiedad CSS se usa para cambiar el color de fondo?", a: "background-color" }
+  ],
+  js: [
+    { q: "¿Qué función se usa para imprimir en la consola?", a: "console.log()" },
+    { q: "¿Qué operador se usa para comparar valor y tipo?", a: "===" },
+    { q: "¿Cómo se declara una variable en JavaScript moderno?", a: "let" },
+    { q: "¿Qué método se usa para agregar un elemento al final de un array?", a: "push()" },
+    { q: "¿Qué estructura se usa para repetir código?", a: "for" },
+    { q: "¿Qué método selecciona un elemento por su ID?", a: "getElementById()" },
+    { q: "¿Qué evento ocurre cuando se hace clic en un elemento?", a: "click" }
+  ]
+};
+
+let selectedQuestions = [];
+let timer;
+let timeLeft = 45 * 60; // 45 minutos en segundos
+
+// Función para mezclar array
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+// Iniciar examen
+document.getElementById('studentForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  // Seleccionar preguntas aleatorias
+  selectedQuestions = [
+    ...shuffleArray(questions.html).slice(0, 7),
+    ...shuffleArray(questions.css).slice(0, 7),
+    ...shuffleArray(questions.js).slice(0, 7)
+  ];
+  shuffleArray(selectedQuestions);
+
+  // Mostrar preguntas
+  document.getElementById('welcome-screen').style.display = 'none';
+  document.getElementById('quiz-container').style.display = 'block';
+  document.getElementById('timer').style.display = 'block';
+  
+  displayQuestions();
+  startTimer();
+});
+
+function displayQuestions() {
+  const questionsContainer = document.getElementById('questions');
+  questionsContainer.innerHTML = '';
+  
+  selectedQuestions.forEach((q, index) => {
+    questionsContainer.innerHTML += `
+      <div class="question">
+        <p><strong>Pregunta ${index + 1}:</strong> ${q.q}</p>
+        <input type="text" id="answer${index}" class="answer-input">
+      </div>
+    `;
+  });
+}
+
+function startTimer() {
+  timer = setInterval(() => {
+    timeLeft--;
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    document.getElementById('timer').textContent = 
+      `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    if (timeLeft <= 0) {
+      clearInterval(timer);
+      submitExam();
+    }
+  }, 1000);
+}
+
+function submitExam() {
+  clearInterval(timer);
+  const answers = [];
+  
+  for (let i = 0; i < selectedQuestions.length; i++) {
+    const answer = document.getElementById(`answer${i}`).value;
+    answers.push({
+      question: selectedQuestions[i].q,
+      userAnswer: answer,
+      correctAnswer: selectedQuestions[i].a
+    });
+  }
+
+  document.getElementById('quiz-container').style.display = 'none';
+  document.getElementById('finish-screen').style.display = 'block';
+  
+  document.getElementById('downloadPDF').addEventListener('click', () => generatePDF(answers));
+}
+
+function generatePDF(answers) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({
+    encryption: {
+      userPassword: "colepotero",
+      ownerPassword: "colepotero",
+      userPermissions: ["print", "modify", "copy", "annot-forms"]
+    }
+  });
+  
+  // Agregar datos del estudiante
+  doc.text('Datos del Estudiante:', 20, 20);
+  doc.text(`Nombre: ${document.getElementById('fullName').value}`, 20, 30);
+  doc.text(`Curso: ${document.getElementById('course').value}`, 20, 40);
+  doc.text(`Email: ${document.getElementById('email').value}`, 20, 50);
+  
+  // Agregar respuestas
+  let y = 70;
+  answers.forEach((answer, index) => {
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.text(`Pregunta ${index + 1}: ${answer.question}`, 20, y);
+    y += 10;
+    doc.text(`Tu respuesta: ${answer.userAnswer}`, 20, y);
+    y += 10;
+    doc.text(`Respuesta correcta: ${answer.correctAnswer}`, 20, y);
+    y += 20;
+  });
+
+  doc.save('respuestas.pdf');
+}
+
+// Medidas de seguridad
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('keydown', e => {
+  if (e.keyCode === 123 || (e.ctrlKey && e.shiftKey && e.keyCode === 73)) {
+    e.preventDefault();
+  }
+});
+
+document.getElementById('submitQuiz').addEventListener('click', submitExam);
+</script>
+</body></html>
