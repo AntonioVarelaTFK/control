@@ -1,0 +1,427 @@
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base de Datos de Preguntas</title>
+    <style>
+        .loading {
+            display: none;
+            color: blue;
+            animation: blinkingText 1.2s infinite;
+        }
+
+        @keyframes blinkingText {
+            0% { opacity: 0; }
+            50% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        button {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #messages div {
+            margin-bottom: 10px;
+        }
+
+        #questionsDisplay {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+        
+        #controls {
+            margin-top: 10px;
+        }
+        
+        input[type="number"] {
+            width: 50px;
+            margin-right: 5px;
+        }
+
+        #paginationControls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        #paginationControls button {
+            margin: 0 10px;
+            padding: 5px 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        #paginationControls button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        (function(w) {
+            const dbName = 'QuestionsDB';
+            const storeName = 'questions';
+            const QUESTIONS_PER_PAGE = 10;
+            let currentPage = 1;
+            let totalQuestions = 0;
+            let totalPages = 1;
+
+            const initDB = async () => {
+                return new Promise((resolve, reject) => {
+                    const request = window.indexedDB.open(dbName, 1);
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        if (!db.objectStoreNames.contains(storeName)) {
+                            db.createObjectStore(storeName, {keyPath: 'id', autoIncrement: true});
+                        }
+                    };
+                    request.onsuccess = (event) => resolve(event.target.result);
+                    request.onerror = () => reject(request.error);
+                });
+            };
+
+            const deleteQuestionById = async (id) => {
+                const db = await initDB();
+                const transaction = db.transaction(storeName, 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.delete(id);
+
+                request.onsuccess = () => showMessage(`Pregunta con ID ${id} eliminada.`);
+                request.onerror = () => showMessage(`Error al eliminar la pregunta con ID ${id}.`, true);
+            };
+
+            const regenerateQuestionById = async (id) => {
+                deleteQuestionById(id);
+                const question = {id, category: 'CSS', question: `Example question for ID: ${id}`, correctAnswer: `Correct answer for ID: ${id}`};
+                insertQuestions([question]);
+            };
+
+            const regenerateQuestionsFromId = async (startId) => {
+                const db = await initDB();
+                const transaction = db.transaction(storeName, 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.openCursor();
+                
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        if (cursor.value.id >= startId) {
+                            store.delete(cursor.key);
+                        }
+                        cursor.continue();
+                    } else {
+                        showMessage(`Regenerating questions starting from ID ${startId}.`);
+                        insertQuestions([{id: startId, category: 'CSS', question: `Example question for ID: ${startId}`, correctAnswer: `Correct answer for ID: ${startId}`}]);
+                    }
+                };
+            };
+
+            const insertQuestions = async (questions) => {
+                try {
+                    const db = await initDB();
+                    const transaction = db.transaction(storeName, 'readwrite');
+                    const store = transaction.objectStore(storeName);
+                    questions.forEach(q => store.add(q));
+                    transaction.oncomplete = () => {
+                        showMessage('Preguntas añadidas exitosamente.');
+                        toggleLoading(false);
+                    };
+                    transaction.onerror = () => {
+                        showMessage('Error al añadir las preguntas.', true);
+                        toggleLoading(false);
+                    };
+                } catch (error) {
+                    showMessage('Error al acceder a la base de datos.', true);
+                    toggleLoading(false);
+                }
+            };
+
+            const showMessage = (message, isError = false) => {
+                const messageDiv = document.getElementById('messages');
+                const messageElement = document.createElement('div');
+                messageElement.textContent = message;
+                messageElement.style.color = isError ? 'red' : 'green';
+                messageDiv.appendChild(messageElement);
+            };
+
+            const toggleLoading = (isLoading) => {
+                const loadingElement = document.getElementById('loadingIndicator');
+                loadingElement.style.display = isLoading ? 'block' : 'none';
+            };
+
+            const displayQuestions = async () => {
+                const db = await initDB();
+                const transaction = db.transaction(storeName, 'readonly');
+                const store = transaction.objectStore(storeName);
+                const countRequest = store.count();
+
+                countRequest.onsuccess = () => {
+                    totalQuestions = countRequest.result;
+                    totalPages = Math.ceil(totalQuestions / QUESTIONS_PER_PAGE);
+                    updatePaginationControls();
+                };
+
+                const questionsDisplay = document.getElementById('questionsDisplay');
+                questionsDisplay.innerHTML = '';
+
+                const start = (currentPage - 1) * QUESTIONS_PER_PAGE;
+                const request = store.openCursor();
+                
+                let questionIndex = 0;
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor && questionIndex < start + QUESTIONS_PER_PAGE) {
+                        if (questionIndex >= start) {
+                            const questionData = `ID: ${cursor.value.id} - ${cursor.value.category}: ${cursor.value.question} | Respuesta: ${cursor.value.correctAnswer}<br>`;
+                            questionsDisplay.innerHTML += questionData;
+                        }
+                        questionIndex++;
+                        cursor.continue();
+                    }
+                };
+
+                request.onerror = () => showMessage('Error al mostrar las preguntas.', true);
+            };
+
+            const updatePaginationControls = () => {
+                document.getElementById('currentPage').textContent = currentPage;
+                document.getElementById('totalPages').textContent = totalPages;
+                document.getElementById('prevPageButton').disabled = currentPage === 1;
+                document.getElementById('nextPageButton').disabled = currentPage === totalPages;
+            };
+
+            const goToNextPage = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    displayQuestions();
+                }
+            };
+
+            const goToPreviousPage = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    displayQuestions();
+                }
+            };
+
+            const exportToPDF = async () => {
+                const db = await initDB();
+                const transaction = db.transaction(storeName, 'readonly');
+                const store = transaction.objectStore(storeName);
+                const request = store.openCursor();
+                const questionsText = [];
+
+                request.onsuccess = (event) => {
+                    const cursor = event.target.result;
+                    if (cursor) {
+                        const questionData = `ID: ${cursor.value.id} - ${cursor.value.category}: ${cursor.value.question} | Respuesta: ${cursor.value.correctAnswer}`;
+                        questionsText.push(questionData);
+                        cursor.continue();
+                    } else {
+                        const { jsPDF } = window.jspdf;
+                        let doc = new jsPDF();
+                        const pageHeight = doc.internal.pageSize.height;
+                        const margin = 10;
+                        let y = margin;
+
+                        doc.setFontSize(8);
+                        questionsText.forEach((text) => {
+                            const textLines = doc.splitTextToSize(text, 180);
+
+                            textLines.forEach((line) => {
+                                if (y + 10 > pageHeight - margin) {
+                                    doc.addPage();
+                                    y = margin;
+                                }
+                                doc.text(line, margin, y);
+                                y += 5;
+                            });
+                        });
+
+                        doc.save('preguntas_completas.pdf');
+                    }
+                };
+
+                request.onerror = () => showMessage('Error al exportar las preguntas a PDF.', true);
+            };
+
+            const isDatabasePopulated = async () => {
+                const db = await initDB();
+                const transaction = db.transaction(storeName, 'readonly');
+                const store = transaction.objectStore(storeName);
+                const countRequest = store.count();
+
+                return new Promise((resolve) => {
+                    countRequest.onsuccess = () => resolve(countRequest.result >= 100);
+                    countRequest.onerror = () => resolve(false);
+                });
+            };
+
+            const seedDatabase = async (force = false) => {
+                if (!force && await isDatabasePopulated()) {
+                    showMessage('La base de datos ya contiene suficientes preguntas.');
+                    return;
+                }
+
+                toggleLoading(true);
+
+                const questions = [
+                    { category: 'HTML', question: '¿Qué significa HTML?', correctAnswer: 'HyperText Markup Language' },
+                    { category: 'HTML', question: '¿Qué etiqueta se usa para los encabezados grandes?', correctAnswer: '&lt;h1&gt;' },
+                    { category: 'CSS', question: '¿Qué significa CSS?', correctAnswer: 'Cascading Style Sheets' },
+                    { category: 'CSS', question: '¿Cómo se define un color de fondo en CSS?', correctAnswer: 'background-color' },
+                    { category: 'JavaScript', question: '¿Qué es una variable en JavaScript?', correctAnswer: 'Una variable es un contenedor para almacenar datos.' },
+                    { category: 'JavaScript', question: '¿Cómo se declara una función en JavaScript?', correctAnswer: 'function miFuncion() {}' },
+                    { category: 'HTML', question: '¿Qué atributo se usa para incluir una imagen en HTML?', correctAnswer: 'src' },
+                    { category: 'CSS', question: '¿Cómo se centra un elemento con flexbox en CSS?', correctAnswer: 'justify-content: center; align-items: center;' },
+                    { category: 'JavaScript', question: '¿Qué método se utiliza para agregar un nuevo elemento al final de un array?', correctAnswer: 'push()' },
+                    { category: 'HTML', question: '¿Cómo se crean listas con viñetas en HTML?', correctAnswer: 'Usando la etiqueta &lt;ul&gt;' },
+                    { category: 'HTML', question: '¿Qué etiqueta se usa para incluir hipervínculos en HTML?', correctAnswer: '&lt;a&gt;' },
+                    { category: 'CSS', question: '¿Qué propiedad determina el tamaño de la fuente en CSS?', correctAnswer: 'font-size' },
+                    { category: 'JavaScript', question: '¿Cuál es el operador de comparación igual en JavaScript?', correctAnswer: '===' },
+                    { category: 'JavaScript', question: '¿Cómo se escribe un comentario en JavaScript?', correctAnswer: '// para una línea o /* */ para múltiples líneas' },
+                    { category: 'HTML', question: '¿Cómo se define un formulario en HTML?', correctAnswer: 'Usando la etiqueta &lt;form&gt;' },
+                    { category: 'CSS', question: '¿Qué propiedad se usa para cambiar el tipo de letra en CSS?', correctAnswer: 'font-family' },
+                    { category: 'JavaScript', question: '¿Cómo se declara una constante en JavaScript?', correctAnswer: 'const nombreConstante = valor;' },
+                    { category: 'HTML', question: '¿Qué etiqueta se usa para un párrafo en HTML?', correctAnswer: '&lt;p&gt;' },
+                    { category: 'CSS', question: '¿Qué es un ID en CSS y cómo se selecciona?', correctAnswer: 'Un identificador único usando #id' },
+                    { category: 'JavaScript', question: '¿Qué método se usa para encontrar el tamaño de un array?', correctAnswer: 'length' },
+                    { category: 'JavaScript', question: '¿Cómo se ejecuta automáticamente una función en JS?', correctAnswer: 'Usando una IIFE: (function(){})();' },
+                    { category: 'HTML', question: '¿Para qué sirve la etiqueta &lt;link&gt; en HTML?', correctAnswer: 'Para vincular hojas de estilo externas a un documento HTML.' },
+                    { category: 'HTML', question: '¿Cuál es la función de la etiqueta &lt;meta&gt; en HTML?', correctAnswer: 'Proporcionar metadatos sobre el documento HTML.' },
+                    { category: 'HTML', question: '¿Qué elemento en HTML se utiliza para definir un conjunto de opciones en un formulario?', correctAnswer: '&lt;select&gt;' },
+                    { category: 'JavaScript', question: '¿Qué es el DOM?', correctAnswer: 'Modelo de Objetos del Documento, una representación estructurada de una página web.' },
+                    { category: 'JavaScript', question: '¿Qué es jQuery?', correctAnswer: 'Una biblioteca de JavaScript que simplifica la manipulación del DOM.' },
+                    { category: 'CSS', question: '¿Qué significa "responsive design"?', correctAnswer: 'Diseño que se adapta a diferentes tamaños de pantalla.' },
+                    { category: 'CSS', question: '¿Qué propiedad CSS se utiliza para agregar sombra a un elemento?', correctAnswer: 'box-shadow' },
+                    { category: 'JavaScript', question: '¿Cómo se define un objeto en JavaScript?', correctAnswer: 'Usando llaves `{}` para envolver sus propiedades.' },
+                    { category: 'JavaScript', question: '¿Cuál es la diferencia entre null y undefined en JavaScript?', correctAnswer: 'null es un valor asignado, undefined significa que no se ha asignado un valor.' },
+                    { category: 'JavaScript', question: '¿Cómo se crea un array en JavaScript?', correctAnswer: 'Usando corchetes: `let arr = []`.' },
+                    { category: 'JavaScript', question: '¿Qué es una promesa en JavaScript?', correctAnswer: 'Un objeto que representa un valor que puede estar disponible ahora, en el futuro o nunca.' },
+                    { category: 'JavaScript', question: '¿Cómo se usa el método map en un array?', correctAnswer: 'Se usa para transformar cada elemento del array, devolviendo un nuevo array.' },
+                    { category: 'CSS', question: '¿Qué efecto tiene la propiedad float en un elemento?', correctAnswer: 'Permite que un elemento flote a la izquierda o derecha, permitiendo que otros elementos se ajusten alrededor de él.' },
+                    { category: 'HTML', question: '¿Cuál es el propósito de la etiqueta &lt;table&gt;?', correctAnswer: 'Para mostrar datos en forma de tabla.' },
+                    { category: 'HTML', question: '¿Cómo se declara un iframe?', correctAnswer: 'Usando la etiqueta &lt;iframe&gt;.' },
+                    { category: 'CSS', question: '¿Cómo se cambia el color del texto en CSS?', correctAnswer: 'Usando la propiedad color.' },
+                    { category: 'JavaScript', question: '¿Cuál es la diferencia entre == y === en JavaScript?', correctAnswer: '== compara solo el valor, === compara valor y tipo.' },
+                    { category: 'JavaScript', question: '¿Qué es una función de flecha?', correctAnswer: 'Una forma más concisa de escribir funciones en JavaScript.' },
+                    { category: 'CSS', question: '¿Para qué se utiliza la propiedad display?', correctAnswer: 'Para definir cómo se comporta un elemento en el flujo del documento.' },
+                    { category: 'JavaScript', question: '¿Qué es el Hoisting en JavaScript?', correctAnswer: 'El comportamiento por el cual las declaraciones de variables y funciones son elevadas al inicio de su contexto' },
+                    { category: 'CSS', question: '¿Cómo se aplica una transición a un elemento en CSS?', correctAnswer: 'Usando la propiedad transition seguida de las propiedades a animar.' },
+                    { category: 'JavaScript', question: '¿Qué es el scope en JavaScript?', correctAnswer: 'El contexto en el que se definen y acceden las variables.' },
+                    { category: 'HTML', question: '¿Qué es un atributo en HTML?', correctAnswer: 'Una característica adicional de un elemento HTML que proporciona información sobre el elemento.' },
+                    { category: 'HTML', question: '¿Cuál es el propósito de la etiqueta &lt;title&gt;?', correctAnswer: 'Define el título del documento que se muestra en la barra de título del navegador.' },
+                    { category: 'CSS', question: '¿Qué es un selector CSS?', correctAnswer: 'Una forma de seleccionar elementos HTML para aplicar estilos.' },
+                    { category: 'CSS', question: '¿Cómo se puede aplicar estilos a un elemento con un clase específica?', correctAnswer: 'Usando .nombreDeClase en el selector.' },
+                    { category: 'JavaScript', question: '¿Qué es un bucle?', correctAnswer: 'Una estructura que repite un bloque de código múltiples veces.' },
+                    { category: 'JavaScript', question: '¿Cómo se utiliza el operador "for...of"?', correctAnswer: 'Para iterar sobre los valores de un iterable.' },
+                    { category: 'HTML', question: '¿Cómo se añade un comentario en HTML?', correctAnswer: 'Usando &lt;!-- comentario --&gt;.' },
+                    { category: 'JavaScript', question: '¿Cómo se detiene la ejecución de una función en JavaScript?', correctAnswer: 'Usando el statement return.' },
+                    { category: 'CSS', question: '¿Qué es un Flexbox?', correctAnswer: 'Un modelo de diseño que permite el orden y alineación de los elementos en un contenedor.' },
+                    { category: 'JavaScript', question: '¿Qué es un callback en JavaScript?', correctAnswer: 'Una función que se pasa a otra función como argumento y se ejecuta después.' },
+                    { category: 'HTML', question: '¿Qué es una etiqueta autoconclusiva?', correctAnswer: 'Una etiqueta que no necesita tener una etiqueta de cierre, como &lt;img&gt; o &lt;br&gt;.' },
+                    { category: 'CSS', question: '¿Cómo se aplica un borde a un elemento?', correctAnswer: 'Usando la propiedad border.' },
+                    { category: 'JavaScript', question: '¿Qué es el JSON?', correctAnswer: 'JavaScript Object Notation, un formato para almacenar y transferir datos.' },
+                    { category: 'HTML', question: '¿Qué es una etiqueta de script?', correctAnswer: 'Una etiqueta que permite incluir código JavaScript dentro de un documento HTML.' },
+                    { category: 'CSS', question: '¿Qué es Z-index en CSS?', correctAnswer: 'Propiedad que determina la superposición de los elementos en el eje Z.' },
+                    { category: 'JavaScript', question: '¿Qué significa "event bubbling"?', correctAnswer: 'Cuando un evento se propaga desde el elemento objetivo hacia arriba en el DOM.' },
+                    { category: 'JavaScript', question: '¿Qué es el Async/Await?', correctAnswer: 'Una forma de manejar operaciones asíncronas en JavaScript.' },
+                    { category: 'CSS', question: '¿Cómo se instancia un objeto en JavaScript?', correctAnswer: 'Usando la palabra clave new junto con un constructor.' },
+                    { category: 'JavaScript', question: '¿Qué es un prototype en JavaScript?', correctAnswer: 'Un mecanismo que permite la herencia en JavaScript.' },
+                    { category: 'HTML', question: '¿Para qué se utiliza la etiqueta &lt;meta charset="UTF-8"&gt;?', correctAnswer: 'Para definir la codificación de caracteres del documento.' },
+                    { category: 'CSS', question: '¿Qué significa el término "float" en CSS?', correctAnswer: 'Una propiedad que permite que un elemento se desplace a un lado de su contenedor.' }
+                ];
+
+                await insertQuestions(questions);
+            };
+
+            const resetDatabase = async () => {
+                const db = await initDB();
+                db.close();
+                const deleteRequest = window.indexedDB.deleteDatabase(dbName);
+
+                deleteRequest.onsuccess = () => showMessage('Base de datos reseteada exitosamente.');
+                deleteRequest.onerror = () => showMessage('Error al resetear la base de datos.', true);
+            };
+
+            const regenerateDatabase = async () => {
+                await resetDatabase();
+                await seedDatabase(true);
+            };
+
+            w.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('resetButton').addEventListener('click', resetDatabase);
+                document.getElementById('showQuestionsButton').addEventListener('click', displayQuestions);
+                document.getElementById('exportPdfButton').addEventListener('click', exportToPDF);
+                document.getElementById('regenerateButton').addEventListener('click', regenerateDatabase);
+
+                document.getElementById('deleteByIdButton').addEventListener('click', () => {
+                    const id = parseInt(document.getElementById('questionIdInput').value, 10);
+                    if (!isNaN(id)) {
+                        deleteQuestionById(id);
+                    }
+                });
+
+                document.getElementById('regenerateByIdButton').addEventListener('click', () => {
+                    const id = parseInt(document.getElementById('questionIdInput').value, 10);
+                    if (!isNaN(id)) {
+                        regenerateQuestionById(id);
+                    }
+                });
+
+                document.getElementById('regenerateFromIdButton').addEventListener('click', () => {
+                    const startId = parseInt(document.getElementById('regenerateFromIdInput').value, 10);
+                    if (!isNaN(startId)) {
+                        regenerateQuestionsFromId(startId);
+                    }
+                });
+
+                document.getElementById('prevPageButton').addEventListener('click', goToPreviousPage);
+                document.getElementById('nextPageButton').addEventListener('click', goToNextPage);
+
+                seedDatabase();
+            });
+        })(window);
+    </script>
+</head>
+<body>
+    <h1>Base de Datos de Preguntas para Principiantes</h1>
+    <div id="messages"></div>
+    <div id="loadingIndicator" class="loading">Cargando preguntas, por favor espera...</div>
+    <div id="controls">
+        <input type="number" id="questionIdInput" placeholder="ID de Pregunta">
+        <button id="deleteByIdButton">Eliminar por ID</button>
+        <button id="regenerateByIdButton">Regenerar por ID</button>
+        <br>
+        <input type="number" id="regenerateFromIdInput" placeholder="ID Inicial">
+        <button id="regenerateFromIdButton">Regenerar desde ID</button>
+    </div>
+    <button id="resetButton">Resetear Base de Datos</button>
+    <button id="showQuestionsButton">Mostrar Preguntas</button>
+    <button id="exportPdfButton">Exportar a PDF</button>
+    <button id="regenerateButton">Regenerar Preguntas</button>
+    <div id="questionsDisplay"></div>
+    <div id="paginationControls">
+        <button id="prevPageButton">Anterior</button>
+        <span id="pageIndicator">Página <span id="currentPage">1</span> de <span id="totalPages">1</span></span>
+        <button id="nextPageButton">Siguiente</button>
+    </div>
+</body>
+</html>
